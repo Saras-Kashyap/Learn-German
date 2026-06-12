@@ -230,7 +230,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="example@mail.com"
-                className="w-full pl-10 pr-4 py-3 text-xs md:text-sm rounded-xl border border-slate-205 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                className="w-full pl-10 pr-4 py-3 text-xs md:text-sm rounded-xl border border-slate-205 bg-slate-50 text-slate-955 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:focus:bg-slate-900"
                 required
               />
             </div>
@@ -247,7 +247,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-10 pr-4 py-3 text-xs md:text-sm rounded-xl border border-slate-205 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 dark:border-slate-800 dark:bg-slate-950 dark:text-white"
+                className="w-full pl-10 pr-4 py-3 text-xs md:text-sm rounded-xl border border-slate-205 bg-slate-50 text-slate-955 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 dark:border-slate-800 dark:bg-slate-955 dark:text-white dark:focus:bg-slate-900"
                 required
               />
             </div>
