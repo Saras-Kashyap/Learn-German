@@ -153,11 +153,11 @@ export default function HoerenPage() {
   const handleCheckAnswers = async () => {
     setShowResults(true);
 
+    const finalScore = Math.round((score / hoerenQuestions.length) * 60);
+
     if (user) {
       setSyncStatus("syncing");
       try {
-        const finalScore = Math.round((score / hoerenQuestions.length) * 60);
-
         const { data: existingProgress } = await supabase
           .from("exam_progress")
           .select("*")
@@ -188,6 +188,17 @@ export default function HoerenPage() {
         console.error("Sync error:", err);
         setSyncStatus("error");
       }
+    } else {
+      // Guest mode - save to localstorage
+      try {
+        const local = localStorage.getItem("b2_exam_progress");
+        const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+        progress.hoeren_score = Math.max(progress.hoeren_score || 0, finalScore);
+        localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+        setSyncStatus("synced");
+      } catch (err) {
+        console.error("Local storage error:", err);
+      }
     }
   };
 
@@ -215,13 +226,13 @@ export default function HoerenPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">Listening Module</h1>
-            <p className="text-xs text-slate-400 dark:text-slate-500">Goethe B2 - Listening Comprehension Part 2</p>
+            <p className="text-xs text-slate-405 dark:text-slate-500">Goethe B2 - Listening Comprehension Part 2</p>
           </div>
         </div>
 
         <button
           onClick={() => setShowTranscript(!showTranscript)}
-          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-655 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-all"
+          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-655 hover:bg-slate-55 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm transition-all"
         >
           {showTranscript ? <EyeOff className="h-4 w-4 text-emerald-500" /> : <Eye className="h-4 w-4" />}
           <span>{showTranscript ? "Hide Transcript" : "Show Transcript"}</span>
@@ -231,19 +242,19 @@ export default function HoerenPage() {
       {/* Sync Banner */}
       {syncStatus !== "idle" && (
         <div className={`px-6 py-2 text-xs flex items-center justify-between font-semibold ${
-          syncStatus === "syncing" ? "bg-slate-100 text-slate-600 dark:bg-slate-900" :
+          syncStatus === "syncing" ? "bg-slate-100 text-slate-650 dark:bg-slate-900" :
           syncStatus === "synced" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400" :
           "bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-455"
         }`}>
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing listening result with Supabase..."}
-              {syncStatus === "synced" && "Listening score successfully synchronized!"}
+              {syncStatus === "syncing" && "Synchronizing listening result..."}
+              {syncStatus === "synced" && (user ? "Listening score successfully synchronized!" : "Progress saved locally!")}
               {syncStatus === "error" && "Error synchronizing score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">Cloud Saved</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold">{user ? "Cloud Saved" : "Local Saved"}</span>}
         </div>
       )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { Mail, Lock, LogIn, ArrowRight, UserPlus, Globe } from "lucide-react";
@@ -14,6 +14,99 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        router.push("/");
+      }
+    };
+    checkUser();
+  }, [supabase, router]);
+
+  const syncLocalProgressToSupabase = async (userId: string) => {
+    try {
+      const local = localStorage.getItem("b2_exam_progress");
+      if (!local) return;
+
+      const localProgress = JSON.parse(local);
+      
+      // Fetch existing cloud progress
+      const { data: existingProgress } = await supabase
+        .from("exam_progress")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (existingProgress) {
+        const { error } = await supabase
+          .from("exam_progress")
+          .update({
+            lesen_score: Math.max(existingProgress.lesen_score || 0, localProgress.lesen_score || 0),
+            hoeren_score: Math.max(existingProgress.hoeren_score || 0, localProgress.hoeren_score || 0),
+            schreiben_score: Math.max(existingProgress.schreiben_score || 0, localProgress.schreiben_score || 0),
+            sprechen_score: Math.max(existingProgress.sprechen_score || 0, localProgress.sprechen_score || 0),
+            updated_at: new Date().toISOString()
+          })
+          .eq("user_id", userId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("exam_progress")
+          .insert({
+            user_id: userId,
+            lesen_score: localProgress.lesen_score || 0,
+            hoeren_score: localProgress.hoeren_score || 0,
+            schreiben_score: localProgress.schreiben_score || 0,
+            sprechen_score: localProgress.sprechen_score || 0,
+            updated_at: new Date().toISOString()
+          });
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Failed to sync progress on login:", err);
+    }
+  };
+
+  const syncLocalVocabToSupabase = async (userId: string) => {
+    try {
+      const localVocab = localStorage.getItem("b2_vocab");
+      if (!localVocab) return;
+
+      const vocabList = JSON.parse(localVocab);
+      if (!Array.isArray(vocabList) || vocabList.length === 0) return;
+
+      // Fetch existing vocab to avoid exact duplicates
+      const { data: existingVocab } = await supabase
+        .from("user_vocabulary")
+        .select("german_word")
+        .eq("user_id", userId);
+
+      const existingWords = new Set(
+        existingVocab?.map((v: any) => v.german_word.toLowerCase().trim()) || []
+      );
+
+      const toInsert = vocabList
+        .filter((item: any) => item && item.german_word && !existingWords.has(item.german_word.toLowerCase().trim()))
+        .map((item: any) => ({
+          user_id: userId,
+          german_word: item.german_word,
+          english_translation: item.english_translation,
+          srs_interval: item.srs_interval || 1,
+          next_review_date: item.next_review_date || new Date().toISOString()
+        }));
+
+      if (toInsert.length > 0) {
+        const { error } = await supabase
+          .from("user_vocabulary")
+          .insert(toInsert);
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Failed to sync vocabulary on login:", err);
+    }
+  };
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +131,12 @@ export default function LoginPage() {
             text: "Registration successful! Please check your email for confirmation.",
           });
         } else {
+          if (data.user) {
+            await syncLocalProgressToSupabase(data.user.id);
+            await syncLocalVocabToSupabase(data.user.id);
+            localStorage.removeItem("b2_exam_progress");
+            localStorage.removeItem("b2_vocab");
+          }
           setMessage({
             type: "success",
             text: "Successfully registered and signed in!",
@@ -46,12 +145,19 @@ export default function LoginPage() {
           router.refresh();
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { error, data } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
 
         if (error) throw error;
+
+        if (data.user) {
+          await syncLocalProgressToSupabase(data.user.id);
+          await syncLocalVocabToSupabase(data.user.id);
+          localStorage.removeItem("b2_exam_progress");
+          localStorage.removeItem("b2_vocab");
+        }
 
         setMessage({
           type: "success",
@@ -190,7 +296,7 @@ export default function LoginPage() {
         {/* Guest Mode */}
         <button
           onClick={handleGuestLogin}
-          className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white py-3 text-xs font-semibold text-slate-655 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm"
+          className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-205 bg-white py-3 text-xs font-semibold text-slate-655 hover:bg-slate-55 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 shadow-sm"
         >
           <span>Continue as Guest</span>
           <ArrowRight className="h-3.5 w-3.5" />

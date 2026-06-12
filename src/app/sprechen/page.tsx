@@ -98,6 +98,8 @@ export default function SprechenPage() {
       setIsRecording(false);
       setAudioSaved(true);
 
+      const scoreToSave = 48; // B2 default simulated grade out of 60
+
       if (user) {
         setSyncStatus("syncing");
         try {
@@ -106,8 +108,6 @@ export default function SprechenPage() {
             .select("*")
             .eq("user_id", user.id)
             .maybeSingle();
-
-          const scoreToSave = 48; // B2 default simulated grade out of 60
 
           if (existingProgress) {
             await supabase
@@ -130,6 +130,17 @@ export default function SprechenPage() {
         } catch (err) {
           console.error(err);
           setSyncStatus("error");
+        }
+      } else {
+        // Guest mode - save to localstorage
+        try {
+          const local = localStorage.getItem("b2_exam_progress");
+          const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+          progress.sprechen_score = Math.max(progress.sprechen_score || 0, scoreToSave);
+          localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+          setSyncStatus("synced");
+        } catch (err) {
+          console.error("Local storage error:", err);
         }
       }
     } else {
@@ -170,38 +181,51 @@ export default function SprechenPage() {
           { sender: "examiner", text: examinerDebateFlow[nextStep].examinerText }
         ]);
 
-        if (nextStep === examinerDebateFlow.length - 1 && user) {
-          setSyncStatus("syncing");
-          try {
-            const { data: existingProgress } = await supabase
-              .from("exam_progress")
-              .select("*")
-              .eq("user_id", user.id)
-              .maybeSingle();
-
-            const debateScore = 52;
-
-            if (existingProgress) {
-              await supabase
+        if (nextStep === examinerDebateFlow.length - 1) {
+          const debateScore = 52;
+          
+          if (user) {
+            setSyncStatus("syncing");
+            try {
+              const { data: existingProgress } = await supabase
                 .from("exam_progress")
-                .update({
-                  sprechen_score: Math.max(existingProgress.sprechen_score || 0, debateScore),
-                  updated_at: new Date().toISOString()
-                })
-                .eq("user_id", user.id);
-            } else {
-              await supabase
-                .from("exam_progress")
-                .insert({
-                  user_id: user.id,
-                  sprechen_score: debateScore,
-                  updated_at: new Date().toISOString()
-                });
+                .select("*")
+                .eq("user_id", user.id)
+                .maybeSingle();
+
+              if (existingProgress) {
+                await supabase
+                  .from("exam_progress")
+                  .update({
+                    sprechen_score: Math.max(existingProgress.sprechen_score || 0, debateScore),
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq("user_id", user.id);
+              } else {
+                await supabase
+                  .from("exam_progress")
+                  .insert({
+                    user_id: user.id,
+                    sprechen_score: debateScore,
+                    updated_at: new Date().toISOString()
+                  });
+              }
+              setSyncStatus("synced");
+            } catch (err) {
+              console.error(err);
+              setSyncStatus("error");
             }
-            setSyncStatus("synced");
-          } catch (err) {
-            console.error(err);
-            setSyncStatus("error");
+          } else {
+            // Guest mode - save to localstorage
+            try {
+              const local = localStorage.getItem("b2_exam_progress");
+              const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+              progress.sprechen_score = Math.max(progress.sprechen_score || 0, debateScore);
+              localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+              setSyncStatus("synced");
+            } catch (err) {
+              console.error("Local storage error:", err);
+            }
           }
         }
       }, 1500);
@@ -248,19 +272,19 @@ export default function SprechenPage() {
       {/* Sync Banner */}
       {syncStatus !== "idle" && (
         <div className={`px-6 py-2 text-xs flex items-center justify-between font-semibold ${
-          syncStatus === "syncing" ? "bg-slate-100 text-slate-650 dark:bg-slate-900" :
+          syncStatus === "syncing" ? "bg-slate-100 text-slate-655 dark:bg-slate-900" :
           syncStatus === "synced" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400" :
           "bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-455"
         }`}>
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing oral score with Supabase..."}
-              {syncStatus === "synced" && "Speaking score successfully synchronized!"}
+              {syncStatus === "syncing" && "Synchronizing oral score..."}
+              {syncStatus === "synced" && (user ? "Speaking score successfully synchronized!" : "Progress saved locally!")}
               {syncStatus === "error" && "Error synchronizing score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">Cloud Saved</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold">{user ? "Cloud Saved" : "Local Saved"}</span>}
         </div>
       )}
 

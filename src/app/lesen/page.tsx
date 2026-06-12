@@ -156,11 +156,11 @@ export default function LesenPage() {
   const handleCheckAnswers = async () => {
     setShowResults(true);
 
+    const finalScore = Math.round((score / questions.length) * 60);
+
     if (user) {
       setSyncStatus("syncing");
       try {
-        const finalScore = Math.round((score / questions.length) * 60);
-
         const { data: existingProgress } = await supabase
           .from("exam_progress")
           .select("*")
@@ -190,6 +190,17 @@ export default function LesenPage() {
       } catch (err) {
         console.error("Sync error:", err);
         setSyncStatus("error");
+      }
+    } else {
+      // Guest mode - save to localstorage
+      try {
+        const local = localStorage.getItem("b2_exam_progress");
+        const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+        progress.lesen_score = Math.max(progress.lesen_score || 0, finalScore);
+        localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+        setSyncStatus("synced");
+      } catch (err) {
+        console.error("Local storage error:", err);
       }
     }
   };
@@ -324,19 +335,19 @@ export default function LesenPage() {
       {/* Sync Status Banner */}
       {syncStatus !== "idle" && (
         <div className={`px-6 py-2 text-xs flex items-center justify-between font-semibold ${
-          syncStatus === "syncing" ? "bg-slate-100 text-slate-600 dark:bg-slate-900" :
+          syncStatus === "syncing" ? "bg-slate-100 text-slate-650 dark:bg-slate-900" :
           syncStatus === "synced" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400" :
           "bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-455"
         }`}>
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing exam score with Supabase..."}
-              {syncStatus === "synced" && "Score successfully synchronized with Supabase!"}
-              {syncStatus === "error" && "Error synchronizing score with Supabase."}
+              {syncStatus === "syncing" && "Synchronizing exam score..."}
+              {syncStatus === "synced" && (user ? "Score successfully synchronized with Supabase!" : "Progress saved locally!")}
+              {syncStatus === "error" && "Error synchronizing score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold uppercase">Cloud Saved</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold uppercase">{user ? "Cloud Saved" : "Local Saved"}</span>}
         </div>
       )}
 

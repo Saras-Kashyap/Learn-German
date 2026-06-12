@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { createClient } from "@/utils/supabase/client";
 import {
   BookOpen,
   Headphones,
@@ -12,10 +13,22 @@ import {
   Activity,
   ArrowRight,
   TrendingUp,
-  Award
+  Award,
+  Sparkles
 } from "lucide-react";
 
 export default function DashboardPage() {
+  const [user, setUser] = useState<any>(null);
+  const supabase = createClient();
+
+  useEffect(() => {
+    const initUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      setUser(data.user);
+    };
+    initUser();
+  }, [supabase]);
+
   const sections = [
     {
       title: "Lesen",
@@ -65,6 +78,31 @@ export default function DashboardPage() {
 
   return (
     <div className="flex-1 space-y-8 p-6 md:p-10 max-w-7xl mx-auto w-full">
+      {/* Guest Warning Banner */}
+      {!user && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/30 dark:bg-amber-950/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 animate-pulse">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-805 dark:text-slate-200">
+                You are practicing in Guest Mode
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Your B2 exam progress is currently saved in local browser storage. Create an account to sync it to the cloud.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/login"
+            className="shrink-0 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 px-4 py-2 text-xs font-semibold text-white transition-all shadow-sm"
+          >
+            Sign In / Register
+          </Link>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-slate-900 px-6 py-8 md:py-12 md:px-12 shadow-xl shadow-slate-900/10 dark:bg-slate-950 dark:border dark:border-slate-800">
         {/* Subtle German Flag Stripe Pattern */}
