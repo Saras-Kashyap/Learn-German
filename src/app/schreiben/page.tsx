@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { createClient } from "@/utils/supabase/client";
 import {
   PenTool,
   Send,
@@ -16,25 +15,15 @@ import {
 } from "lucide-react";
 
 export default function SchreibenPage() {
-  const supabase = createClient();
 
   const [subject, setSubject] = useState("Beschwerde über die fehlerhafte Lieferung - Bestellnummer #87421");
   const [emailBody, setEmailBody] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showEvaluation, setShowEvaluation] = useState(false);
   const [aiScore, setAiScore] = useState(48);
+  const [evaluationResult, setEvaluationResult] = useState<any>(null);
 
-  // Supabase State
-  const [user, setUser] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
-    };
-    checkUser();
-  }, [supabase]);
 
   // Typical B2 draft with a few common errors to let the user see the tool correct it
   const demoDraft = `Sehr geehrte Damen und Herren,
@@ -58,71 +47,54 @@ Max Mustermann`;
     setSyncStatus("idle");
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (wordCount < 50) return;
     
     setIsSubmitting(true);
     setSyncStatus("idle");
 
-    const computedScore = Math.min(35 + Math.floor((wordCount - 50) / 4), 58);
-    setAiScore(computedScore);
+    try {
+      const res = await fetch("/api/evaluate/writing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: emailBody, subject })
+      });
 
-    setTimeout(async () => {
+      if (!res.ok) throw new Error("Evaluation request failed");
+      const evalData = await res.json();
+      
+      setEvaluationResult(evalData);
+      
+      // Convert out-of-100 score to out-of-60 for the B2 exam framework
+      const computedScore = Math.round((evalData.score / 100) * 60);
+      setAiScore(computedScore);
       setIsSubmitting(false);
       setShowEvaluation(true);
 
-      if (user) {
-        setSyncStatus("syncing");
-        try {
-          const { data: existingProgress } = await supabase
-            .from("exam_progress")
-            .select("*")
-            .eq("user_id", user.id)
-            .maybeSingle();
-
-          if (existingProgress) {
-            const { error } = await supabase
-              .from("exam_progress")
-              .update({
-                schreiben_score: Math.max(existingProgress.schreiben_score || 0, computedScore),
-                updated_at: new Date().toISOString()
-              })
-              .eq("user_id", user.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase
-              .from("exam_progress")
-              .insert({
-                user_id: user.id,
-                schreiben_score: computedScore,
-                updated_at: new Date().toISOString()
-              });
-            if (error) throw error;
-          }
-          setSyncStatus("synced");
-        } catch (err) {
-          console.error("Supabase sync error:", err);
-          setSyncStatus("error");
-        }
-      } else {
-        // Guest mode - save to localstorage
-        try {
-          const local = localStorage.getItem("b2_exam_progress");
-          const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
-          progress.schreiben_score = Math.max(progress.schreiben_score || 0, computedScore);
-          localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
-          setSyncStatus("synced");
-        } catch (err) {
-          console.error("Local storage error:", err);
-        }
+      setSyncStatus("syncing");
+      // Save to localstorage
+      try {
+        const local = localStorage.getItem("b2_exam_progress");
+        const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+        progress.schreiben_score = Math.max(progress.schreiben_score || 0, computedScore);
+        localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+        setSyncStatus("synced");
+      } catch (err) {
+        console.error("Local storage error:", err);
+        setSyncStatus("error");
       }
-    }, 2000);
+    } catch (err: any) {
+      console.error("Evaluation error:", err);
+      alert("Failed to evaluate writing exercise: " + err.message);
+      setIsSubmitting(false);
+    }
   };
 
   const handleReset = () => {
     setEmailBody("");
     setShowEvaluation(false);
+    setEvaluationResult(null);
     setSyncStatus("idle");
   };
 
@@ -162,11 +134,11 @@ Max Mustermann`;
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
               {syncStatus === "syncing" && "Saving written evaluation..."}
-              {syncStatus === "synced" && (user ? "Score successfully synchronized!" : "Progress saved locally!")}
-              {syncStatus === "error" && "Error synchronizing score."}
+              {syncStatus === "synced" && "Progress saved locally!"}
+              {syncStatus === "error" && "Error saving score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">{user ? "Cloud Saved" : "Local Saved"}</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold">Saved</span>}
         </div>
       )}
 
@@ -309,23 +281,27 @@ Max Mustermann`;
                 </div>
                 <div className="text-right">
                   <span className="inline-block text-2xl font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-2xl dark:bg-emerald-950/40 dark:text-emerald-400">
-                    B2 – Passed!
+                    {evaluationResult?.score >= 60 ? "B2 – Passed!" : "B2 – Not Passed"}
                   </span>
-                  <span className="block text-[10px] text-slate-450 dark:text-slate-550 mt-1 font-semibold">Score: {aiScore}/60</span>
+                  <span className="block text-[10px] text-slate-450 dark:text-slate-550 mt-1 font-semibold">Score: {aiScore}/60 ({evaluationResult?.score}%)</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950 border border-slate-200/25 dark:border-slate-800">
                   <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Grammar & Structure</span>
-                  <span className="text-xl font-bold text-slate-855 dark:text-slate-200 mt-1 block">80%</span>
+                  <span className="text-xl font-bold text-slate-855 dark:text-slate-200 mt-1 block">
+                    {evaluationResult?.score ? Math.round(evaluationResult.score * 0.95) : 80}%
+                  </span>
                   <div className="mt-1 h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div className="h-full bg-indigo-500 w-[80%] rounded-full" />
                   </div>
                 </div>
                 <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-950 border border-slate-200/25 dark:border-slate-800">
                   <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Vocabulary Range</span>
-                  <span className="text-xl font-bold text-slate-855 dark:text-slate-200 mt-1 block">75%</span>
+                  <span className="text-xl font-bold text-slate-855 dark:text-slate-200 mt-1 block">
+                    {evaluationResult?.score ? Math.round(evaluationResult.score * 0.9) : 75}%
+                  </span>
                   <div className="mt-1 h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div className="h-full bg-indigo-500 w-[75%] rounded-full" />
                   </div>
@@ -335,57 +311,43 @@ Max Mustermann`;
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Grammar Corrections</h4>
                 
-                <div className="rounded-2xl border border-rose-200 bg-rose-50/20 p-4 dark:border-rose-900/30 dark:bg-rose-955/10 space-y-2">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950 dark:text-rose-455 px-2 py-0.5 rounded">Original:</span>
-                    <span className="line-through text-slate-500">...weil ich habe vor einer Woche...</span>
+                {evaluationResult?.rule_violated && evaluationResult.rule_violated.length > 0 ? (
+                  evaluationResult.rule_violated.map((violation: any, idx: number) => (
+                    <div key={idx} className="rounded-2xl border border-rose-200 bg-rose-50/20 p-4 dark:border-rose-900/30 dark:bg-rose-955/10 space-y-2">
+                      <div className="text-xs font-bold text-rose-700 dark:text-rose-400">
+                        Rule: {violation.rule}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-semibold text-rose-700 bg-rose-50 dark:bg-rose-950 dark:text-rose-455 px-2 py-0.5 rounded">Original:</span>
+                        <span className="line-through text-slate-500">{violation.original}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded">Corrected:</span>
+                        <span className="font-semibold text-slate-800 dark:text-slate-200">{violation.corrected}</span>
+                      </div>
+                      <p className="text-[11px] md:text-xs text-slate-650 dark:text-slate-400 flex gap-1 items-start mt-2">
+                        <Info className="h-3.5 w-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                        <span>{violation.explanation}</span>
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-emerald-250 bg-emerald-50/10 p-4 text-xs text-emerald-800 dark:text-emerald-400">
+                    No major B2 violations found! Good job.
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded">Corrected:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">...weil ich vor einer Woche [...] bestellt habe.</span>
-                  </div>
-                  <p className="text-[11px] md:text-xs text-slate-650 dark:text-slate-400 flex gap-1 items-start mt-2">
-                    <Info className="h-3.5 w-3.5 text-indigo-500 shrink-0 mt-0.5" />
-                    <span>In subordinate clauses introduced by the conjunction <strong>„weil“</strong>, the conjugated verb must be placed at the very <strong>end</strong> of the clause.</span>
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/20 p-4 dark:border-amber-900/30 dark:bg-amber-955/10 space-y-2">
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950 dark:text-amber-455 px-2 py-0.5 rounded">Suggestion:</span>
-                    <span className="text-slate-500">...Ich warte auf Ihre schnelle Antwort...</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                    <span className="font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-400 px-2 py-0.5 rounded">Recommended (B2):</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">Über eine baldige Rückmeldung würde ich mich sehr freuen.</span>
-                  </div>
-                  <p className="text-[11px] md:text-xs text-slate-655 dark:text-slate-405 flex gap-1 items-start mt-2">
-                    <Info className="h-3.5 w-3.5 text-indigo-500 shrink-0 mt-0.5" />
-                    <span>Use the subjunctive II (Konjunktiv II: „würde mich freuen“) in formal correspondences to maintain a polite and advanced B2 tone.</span>
-                  </p>
-                </div>
+                )}
               </div>
 
-              <div className="rounded-2xl border border-indigo-150 bg-indigo-50/30 p-4 dark:border-indigo-900/30 dark:bg-indigo-955/10 space-y-2">
-                <h4 className="text-xs font-bold text-indigo-805 dark:text-indigo-350 flex items-center gap-1">
-                  <Sparkles className="h-4 w-4" /> B2 Nominal Style Recommendations
-                </h4>
-                <p className="text-[11px] md:text-xs text-slate-655 dark:text-slate-400 leading-normal">
-                  To achieve a higher score in vocabulary range, consider replacing simple verbs with B2 nominal constructs (Nomen-Verb-Verbindungen):
-                </p>
-                <div className="mt-2 space-y-1.5 text-[11px] md:text-xs">
-                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-350 border-b border-slate-200/30 pb-1">
-                    <span>Basic Verb: „ich habe bestellt“</span>
-                    <ArrowRight className="h-3 w-3 text-slate-400" />
-                    <span className="font-medium text-slate-855 dark:text-slate-100">„ich habe eine Bestellung aufgegeben“</span>
-                  </div>
-                  <div className="flex items-center justify-between text-slate-600 dark:text-slate-350">
-                    <span>Basic Verb: „das Gerät beschädigen“</span>
-                    <ArrowRight className="h-3 w-3 text-slate-400" />
-                    <span className="font-medium text-slate-855 dark:text-slate-100">„eine Beschädigung am Gerät aufweisen“</span>
-                  </div>
+              {evaluationResult?.corrected_text && (
+                <div className="rounded-2xl border border-indigo-150 bg-indigo-50/30 p-4 dark:border-indigo-900/30 dark:bg-indigo-955/10 space-y-2">
+                  <h4 className="text-xs font-bold text-indigo-805 dark:text-indigo-350 flex items-center gap-1">
+                    <Sparkles className="h-4 w-4" /> Corrected Text / Draft
+                  </h4>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                    {evaluationResult.corrected_text}
+                  </p>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </div>

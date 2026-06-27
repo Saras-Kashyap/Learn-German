@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { createClient } from "@/utils/supabase/client";
 import {
   Headphones,
   Play,
@@ -66,7 +65,6 @@ const hoerenQuestions = [
 ];
 
 export default function HoerenPage() {
-  const supabase = createClient();
 
   // Simulator State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -79,21 +77,10 @@ export default function HoerenPage() {
   // Quiz State
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
   const [showResults, setShowResults] = useState(false);
-
-  // Supabase State
-  const [user, setUser] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
 
   const duration = 154; // 2:34 duration in seconds
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
-    };
-    checkUser();
-  }, [supabase]);
 
   // Simulated playback effect
   useEffect(() => {
@@ -150,55 +137,22 @@ export default function HoerenPage() {
     return acc;
   }, 0);
 
-  const handleCheckAnswers = async () => {
+  const handleCheckAnswers = () => {
     setShowResults(true);
 
     const finalScore = Math.round((score / hoerenQuestions.length) * 60);
+    setSyncStatus("syncing");
 
-    if (user) {
-      setSyncStatus("syncing");
-      try {
-        const { data: existingProgress } = await supabase
-          .from("exam_progress")
-          .select("*")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (existingProgress) {
-          const { error } = await supabase
-            .from("exam_progress")
-            .update({
-              hoeren_score: Math.max(existingProgress.hoeren_score || 0, finalScore),
-              updated_at: new Date().toISOString()
-            })
-            .eq("user_id", user.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from("exam_progress")
-            .insert({
-              user_id: user.id,
-              hoeren_score: finalScore,
-              updated_at: new Date().toISOString()
-            });
-          if (error) throw error;
-        }
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error("Sync error:", err);
-        setSyncStatus("error");
-      }
-    } else {
-      // Guest mode - save to localstorage
-      try {
-        const local = localStorage.getItem("b2_exam_progress");
-        const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
-        progress.hoeren_score = Math.max(progress.hoeren_score || 0, finalScore);
-        localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error("Local storage error:", err);
-      }
+    // Save to localstorage
+    try {
+      const local = localStorage.getItem("b2_exam_progress");
+      const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+      progress.hoeren_score = Math.max(progress.hoeren_score || 0, finalScore);
+      localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+      setSyncStatus("synced");
+    } catch (err) {
+      console.error("Local storage error:", err);
+      setSyncStatus("error");
     }
   };
 
@@ -249,12 +203,12 @@ export default function HoerenPage() {
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing listening result..."}
-              {syncStatus === "synced" && (user ? "Listening score successfully synchronized!" : "Progress saved locally!")}
-              {syncStatus === "error" && "Error synchronizing score."}
+              {syncStatus === "syncing" && "Saving listening result..."}
+              {syncStatus === "synced" && "Progress saved locally!"}
+              {syncStatus === "error" && "Error saving score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">{user ? "Cloud Saved" : "Local Saved"}</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold">Saved</span>}
         </div>
       )}
 

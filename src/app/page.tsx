@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
 import {
   BookOpen,
   Headphones,
@@ -18,16 +17,41 @@ import {
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<any>(null);
-  const supabase = createClient();
+  const [progress, setProgress] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const initUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
+    const initData = () => {
+      setLoading(true);
+      try {
+        const local = localStorage.getItem("b2_exam_progress");
+        if (local) {
+          setProgress(JSON.parse(local));
+        }
+      } catch (err) {
+        console.error("Local storage error:", err);
+      }
+      setLoading(false);
     };
-    initUser();
-  }, [supabase]);
+    initData();
+  }, []);
+
+  const getAverageScore = () => {
+    if (!progress) return null;
+    const scores = [
+      progress.lesen_score,
+      progress.hoeren_score,
+      progress.schreiben_score,
+      progress.sprechen_score
+    ].filter((s) => s !== null && s !== undefined);
+    
+    if (scores.length === 0) return null;
+    const total = scores.reduce((sum, s) => sum + s, 0);
+    return Math.round((total / (scores.length * 60)) * 100);
+  };
+
+  const avgPercent = getAverageScore();
+
 
   const sections = [
     {
@@ -71,38 +95,13 @@ export default function DashboardPage() {
       icon: Mic,
       href: "/sprechen",
       color: "from-rose-500 to-pink-600",
-      lightColor: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-455",
+      lightColor: "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400",
       tag: "2 Parts"
     }
   ];
 
   return (
     <div className="flex-1 space-y-8 p-6 md:p-10 max-w-7xl mx-auto w-full">
-      {/* Guest Warning Banner */}
-      {!user && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/30 dark:bg-amber-950/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 animate-pulse">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-slate-805 dark:text-slate-200">
-                You are practicing in Guest Mode
-              </h4>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Your B2 exam progress is currently saved in local browser storage. Create an account to sync it to the cloud.
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/login"
-            className="shrink-0 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 px-4 py-2 text-xs font-semibold text-white transition-all shadow-sm"
-          >
-            Sign In / Register
-          </Link>
-        </div>
-      )}
-
       {/* Header Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-slate-900 px-6 py-8 md:py-12 md:px-12 shadow-xl shadow-slate-900/10 dark:bg-slate-950 dark:border dark:border-slate-800">
         {/* Subtle German Flag Stripe Pattern */}
@@ -113,7 +112,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="relative z-10 max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-505/10 px-3 py-1 text-xs font-semibold text-indigo-400">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-semibold text-indigo-400">
             <Award className="h-3.5 w-3.5" /> Goethe-Zertifikat B2 & ÖSD Preparation
           </span>
           <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white md:text-4xl">
@@ -133,7 +132,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Decorative elements */}
-        <div className="absolute right-0 bottom-0 top-0 w-1/3 opacity-10 hidden md:block bg-gradient-to-l from-indigo-505 to-transparent pointer-events-none" />
+        <div className="absolute right-0 bottom-0 top-0 w-1/3 opacity-10 hidden md:block bg-gradient-to-l from-indigo-500 to-transparent pointer-events-none" />
       </div>
 
       {/* Grid: Overview and Stats */}
@@ -146,7 +145,7 @@ export default function DashboardPage() {
             </span>
             <div className="flex items-baseline gap-1.5">
               <span className="text-3xl font-bold text-slate-800 dark:text-slate-100">5 Days</span>
-              <span className="text-xs font-medium text-emerald-505 flex items-center gap-0.5">
+              <span className="text-xs font-medium text-emerald-500 flex items-center gap-0.5">
                 <TrendingUp className="h-3 w-3" /> +1 today
               </span>
             </div>
@@ -155,16 +154,16 @@ export default function DashboardPage() {
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/20 text-amber-500">
             <Trophy className="h-6 w-6" />
           </div>
-        </div>
-
-        {/* Stat Card 2 */}
+        </div>        {/* Stat Card 2 */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/50 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
               Average Score
             </span>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-bold text-slate-800 dark:text-slate-100">78 %</span>
+              <span className="text-3xl font-bold text-slate-800 dark:text-slate-100">
+                {avgPercent !== null ? `${avgPercent} %` : "-- %"}
+              </span>
               <span className="text-xs font-semibold text-indigo-500 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.5 rounded">
                 B2 Level
               </span>
@@ -179,7 +178,7 @@ export default function DashboardPage() {
         {/* Stat Card 3 */}
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/50 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-xs font-semibold text-slate-400 dark:text-slate-550 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
               Next Exam Date
             </span>
             <div className="flex items-baseline gap-1.5">
@@ -187,7 +186,7 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs text-slate-500">12 days remaining for preparation.</p>
           </div>
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-505">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-500">
             <Calendar className="h-6 w-6" />
           </div>
         </div>
@@ -202,11 +201,14 @@ export default function DashboardPage() {
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {sections.map((section) => {
             const Icon = section.icon;
+            const key = `${section.title.toLowerCase()}_score`;
+            const scoreVal = progress ? progress[key] : null;
+            const scorePercent = scoreVal !== null && scoreVal !== undefined ? Math.round((scoreVal / 60) * 100) : null;
             return (
               <Link
                 key={section.href}
                 href={section.href}
-                className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-850 dark:hover:border-slate-700"
+                className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800 dark:hover:border-slate-700"
               >
                 <div>
                   <div className="flex items-center justify-between">
@@ -218,21 +220,37 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="mt-4">
-                    <span className="inline-block text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide">
-                      {section.subtitle}
-                    </span>
-                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    <div className="flex justify-between items-center">
+                      <span className="inline-block text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                        {section.subtitle}
+                      </span>
+                      {scoreVal !== null && scoreVal !== undefined && (
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded">
+                          {scorePercent}%
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors mt-0.5">
                       {section.title}
                     </h3>
-                    <p className="mt-2 text-xs text-slate-505 dark:text-slate-400 leading-relaxed">
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                       {section.description}
                     </p>
                   </div>
                 </div>
-                <div className="mt-6 flex items-center justify-between text-xs font-semibold text-slate-400 dark:text-slate-550">
+                <div className="mt-6 flex items-center justify-between text-xs font-semibold text-slate-400 dark:text-slate-500">
                   <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px]">
                     {section.tag}
                   </span>
+                  {scoreVal !== null && scoreVal !== undefined ? (
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      Score: {scoreVal}/60
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                      Not started
+                    </span>
+                  )}
                   <span className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all">
                     Start <ArrowRight className="h-3 w-3" />
                   </span>
@@ -246,25 +264,25 @@ export default function DashboardPage() {
       {/* Helpful B2 Quick Links or Tips */}
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/50">
         <h3 className="font-bold text-slate-800 dark:text-slate-100 mb-4">5 Golden B2 Exam Tips</h3>
-        <ul className="space-y-3 text-sm text-slate-605 dark:text-slate-350">
+        <ul className="space-y-3 text-sm text-slate-600 dark:text-slate-350">
           <li className="flex gap-2">
-            <span className="text-indigo-550 font-bold">1.</span>
+            <span className="text-indigo-500 font-bold">1.</span>
             <span><strong>Expand Vocabulary:</strong> Use noun-verb connections (Nomen-Verb-Verbindungen, e.g., „zur Verfügung stehen“, „in Kauf nehmen“) for better writing and speaking scores.</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-indigo-550 font-bold">2.</span>
+            <span className="text-indigo-500 font-bold">2.</span>
             <span><strong>Use Connectors:</strong> Connect sentences logically using two-part connectors (zweiteilige Konnektoren) like „nicht nur... sondern auch“ or „sowohl... als auch“.</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-indigo-550 font-bold">3.</span>
+            <span className="text-indigo-500 font-bold">3.</span>
             <span><strong>Structured Argumentation:</strong> In the writing and speaking parts, state your opinion clearly, weigh the pros and cons, and provide concrete examples.</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-indigo-550 font-bold">4.</span>
+            <span className="text-indigo-500 font-bold">4.</span>
             <span><strong>Time Management:</strong> The reading section is long. Don't waste time on single unknown words; focus on capturing the overall context.</span>
           </li>
           <li className="flex gap-2">
-            <span className="text-indigo-550 font-bold">5.</span>
+            <span className="text-indigo-500 font-bold">5.</span>
             <span><strong>Active Listening:</strong> Pay attention to keywords. Often, the questions will use synonyms of the words actually spoken in the audio.</span>
           </li>
         </ul>

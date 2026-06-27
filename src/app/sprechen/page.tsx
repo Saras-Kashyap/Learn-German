@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { createClient } from "@/utils/supabase/client";
 import {
   Mic,
   MicOff,
@@ -50,7 +49,6 @@ const examinerDebateFlow = [
 ];
 
 export default function SprechenPage() {
-  const supabase = createClient();
 
   // Voice Recording Simulator State
   const [isRecording, setIsRecording] = useState(false);
@@ -58,22 +56,27 @@ export default function SprechenPage() {
   const [audioSaved, setAudioSaved] = useState(false);
   const recordingTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Voice Recording API State
+  const [speakingScores, setSpeakingScores] = useState<any>({
+    pronunciation: 82,
+    fluency: 78,
+    grammar: 80,
+    vocabulary: 85
+  });
+  const [speakingFeedback, setSpeakingFeedback] = useState<any[]>([
+    { type: "pronunciation", title: "Pronunciation", detail: "Pay attention to word accent and syllable split in compound German nouns." },
+    { type: "connectors", title: "Use Connectors", detail: "Integrate structured transitions (Redemittel) to link your pros and cons." },
+    { type: "fluency", title: "Increase Fluency", detail: "Avoid long silent breaks. Use B2 filler concepts like „tatsächlich“ or „sozusagen“." }
+  ]);
+  const [speakingTranscript, setSpeakingTranscript] = useState<string>("");
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
   // Debate Simulator State
   const [isDebating, setIsDebating] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [debateHistory, setDebateHistory] = useState<Array<{ sender: "examiner" | "user"; text: string }>>([]);
 
-  // Supabase State
-  const [user, setUser] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
-
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
-    };
-    checkUser();
-  }, [supabase]);
 
   // Audio recording timer simulation
   useEffect(() => {
@@ -96,43 +99,32 @@ export default function SprechenPage() {
   const handleStartRecording = async () => {
     if (isRecording) {
       setIsRecording(false);
-      setAudioSaved(true);
+      setIsEvaluating(true);
+      setAudioSaved(false);
 
-      const scoreToSave = 48; // B2 default simulated grade out of 60
+      try {
+        // Create a mock audio blob to send to the backend API
+        const mockAudioBlob = new Blob([new Uint8Array(100)], { type: "audio/wav" });
+        const formData = new FormData();
+        formData.append("audio", mockAudioBlob, "speaking.wav");
 
-      if (user) {
+        const res = await fetch("/api/evaluate/speaking", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!res.ok) throw new Error("Speaking evaluation failed");
+        const data = await res.json();
+
+        setSpeakingTranscript(data.transcript);
+        setSpeakingScores(data.scores);
+        setSpeakingFeedback(data.feedback);
+        setAudioSaved(true);
+
+        const scoreToSave = data.finalExamScore;
+
         setSyncStatus("syncing");
-        try {
-          const { data: existingProgress } = await supabase
-            .from("exam_progress")
-            .select("*")
-            .eq("user_id", user.id)
-            .maybeSingle();
-
-          if (existingProgress) {
-            await supabase
-              .from("exam_progress")
-              .update({
-                sprechen_score: Math.max(existingProgress.sprechen_score || 0, scoreToSave),
-                updated_at: new Date().toISOString()
-              })
-              .eq("user_id", user.id);
-          } else {
-            await supabase
-              .from("exam_progress")
-              .insert({
-                user_id: user.id,
-                sprechen_score: scoreToSave,
-                updated_at: new Date().toISOString()
-              });
-          }
-          setSyncStatus("synced");
-        } catch (err) {
-          console.error(err);
-          setSyncStatus("error");
-        }
-      } else {
-        // Guest mode - save to localstorage
+        // Save to localstorage
         try {
           const local = localStorage.getItem("b2_exam_progress");
           const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
@@ -141,7 +133,13 @@ export default function SprechenPage() {
           setSyncStatus("synced");
         } catch (err) {
           console.error("Local storage error:", err);
+          setSyncStatus("error");
         }
+      } catch (err) {
+        console.error("Speaking evaluation error:", err);
+        alert("Failed to evaluate speech recording.");
+      } finally {
+        setIsEvaluating(false);
       }
     } else {
       setRecordTime(0);
@@ -184,48 +182,17 @@ export default function SprechenPage() {
         if (nextStep === examinerDebateFlow.length - 1) {
           const debateScore = 52;
           
-          if (user) {
-            setSyncStatus("syncing");
-            try {
-              const { data: existingProgress } = await supabase
-                .from("exam_progress")
-                .select("*")
-                .eq("user_id", user.id)
-                .maybeSingle();
-
-              if (existingProgress) {
-                await supabase
-                  .from("exam_progress")
-                  .update({
-                    sprechen_score: Math.max(existingProgress.sprechen_score || 0, debateScore),
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq("user_id", user.id);
-              } else {
-                await supabase
-                  .from("exam_progress")
-                  .insert({
-                    user_id: user.id,
-                    sprechen_score: debateScore,
-                    updated_at: new Date().toISOString()
-                  });
-              }
-              setSyncStatus("synced");
-            } catch (err) {
-              console.error(err);
-              setSyncStatus("error");
-            }
-          } else {
-            // Guest mode - save to localstorage
-            try {
-              const local = localStorage.getItem("b2_exam_progress");
-              const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
-              progress.sprechen_score = Math.max(progress.sprechen_score || 0, debateScore);
-              localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
-              setSyncStatus("synced");
-            } catch (err) {
-              console.error("Local storage error:", err);
-            }
+          setSyncStatus("syncing");
+          // Save to localstorage
+          try {
+            const local = localStorage.getItem("b2_exam_progress");
+            const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+            progress.sprechen_score = Math.max(progress.sprechen_score || 0, debateScore);
+            localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+            setSyncStatus("synced");
+          } catch (err) {
+            console.error("Local storage error:", err);
+            setSyncStatus("error");
           }
         }
       }, 1500);
@@ -279,12 +246,12 @@ export default function SprechenPage() {
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing oral score..."}
-              {syncStatus === "synced" && (user ? "Speaking score successfully synchronized!" : "Progress saved locally!")}
-              {syncStatus === "error" && "Error synchronizing score."}
+              {syncStatus === "syncing" && "Saving oral score..."}
+              {syncStatus === "synced" && "Progress saved locally!"}
+              {syncStatus === "error" && "Error saving score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">{user ? "Cloud Saved" : "Local Saved"}</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold">Saved</span>}
         </div>
       )}
 
@@ -323,14 +290,22 @@ export default function SprechenPage() {
                       <span className="h-2 w-2 rounded-full bg-rose-500" /> Recording...
                     </span>
                   )}
+                  {isEvaluating && (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-rose-550 font-bold animate-pulse">
+                      Analyzing speech...
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex justify-center py-4">
                   <button
                     onClick={handleStartRecording}
+                    disabled={isEvaluating}
                     className={`relative flex h-24 w-24 items-center justify-center rounded-full transition-all duration-300 shadow-lg ${
                       isRecording
                         ? "bg-rose-500 text-white shadow-rose-500/30 ring-8 ring-rose-500/10 scale-105"
+                        : isEvaluating
+                        ? "bg-slate-200 text-slate-400 cursor-not-allowed"
                         : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-750"
                     }`}
                   >
@@ -359,11 +334,19 @@ export default function SprechenPage() {
                   </div>
                 )}
 
-                {audioSaved && !isRecording && (
+                {isEvaluating && (
+                  <div className="h-8 flex justify-center items-center gap-1">
+                    <div className="h-2 w-2 bg-rose-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <div className="h-2 w-2 bg-rose-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <div className="h-2 w-2 bg-rose-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                )}
+
+                {audioSaved && !isRecording && !isEvaluating && (
                   <div className="rounded-2xl bg-emerald-50/50 p-4 border border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30 max-w-sm mx-auto flex items-center justify-between gap-3 animate-fadeIn">
                     <div className="flex items-center gap-2 text-xs text-emerald-800 dark:text-emerald-400 font-semibold">
                       <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" />
-                      <span>Recording successfully saved!</span>
+                      <span>Recording evaluated!</span>
                     </div>
                     <button className="flex items-center gap-1 text-[10px] font-bold text-slate-600 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
                       <Play className="h-3 w-3" /> Listen
@@ -375,6 +358,19 @@ export default function SprechenPage() {
                   Click the microphone to practice speaking. When authenticated, your speaking score synchronizes with Supabase.
                 </p>
               </div>
+
+              {/* Dynamic Transcript Box */}
+              {speakingTranscript && !isRecording && !isEvaluating && (
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md dark:border-slate-800 dark:bg-slate-900 space-y-3 animate-fadeIn text-left">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="h-4 w-4 text-rose-500" />
+                    <span>Transcribed Audio (German)</span>
+                  </h4>
+                  <p className="text-xs md:text-sm text-slate-705 dark:text-slate-300 italic leading-relaxed">
+                    "{speakingTranscript}"
+                  </p>
+                </div>
+              )}
             </>
           ) : (
             <div className="rounded-3xl border border-slate-200 bg-white shadow-md dark:border-slate-800 dark:bg-slate-900 flex flex-col h-[520px] overflow-hidden">
@@ -462,40 +458,40 @@ export default function SprechenPage() {
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-slate-600 dark:text-slate-400">Pronunciation</span>
-                  <span className="text-slate-800 dark:text-slate-200">82%</span>
+                  <span className="text-slate-800 dark:text-slate-200">{speakingScores.pronunciation}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-105 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-rose-500 w-[82%] rounded-full" />
+                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${speakingScores.pronunciation}%` }} />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-slate-600 dark:text-slate-400">Fluency</span>
-                  <span className="text-slate-800 dark:text-slate-200">78%</span>
+                  <span className="text-slate-800 dark:text-slate-200">{speakingScores.fluency}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-105 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-rose-500 w-[78%] rounded-full" />
+                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${speakingScores.fluency}%` }} />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-slate-600 dark:text-slate-400">Grammatical Accuracy</span>
-                  <span className="text-slate-800 dark:text-slate-200">80%</span>
+                  <span className="text-slate-800 dark:text-slate-200">{speakingScores.grammar}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-105 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-rose-500 w-[80%] rounded-full" />
+                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${speakingScores.grammar}%` }} />
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold">
                   <span className="text-slate-600 dark:text-slate-400">B2 Vocabulary & Idioms</span>
-                  <span className="text-slate-800 dark:text-slate-200">85%</span>
+                  <span className="text-slate-800 dark:text-slate-200">{speakingScores.vocabulary}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-105 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-rose-500 w-[85%] rounded-full" />
+                  <div className="h-full bg-rose-500 rounded-full" style={{ width: `${speakingScores.vocabulary}%` }} />
                 </div>
               </div>
             </div>
@@ -503,18 +499,12 @@ export default function SprechenPage() {
             <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">B2 Feedback Recommendations</h4>
               <ul className="space-y-3.5 text-xs text-slate-655 dark:text-slate-450 leading-relaxed">
-                <li className="flex gap-2">
-                  <span className="text-rose-500 font-bold">•</span>
-                  <span><strong>Pronunciation:</strong> Pay attention to word accent and syllable split in compound German nouns.</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-rose-500 font-bold">•</span>
-                  <span><strong>Use Connectors:</strong> Integrate structured transitions (Redemittel) to link your pros and cons.</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="text-rose-500 font-bold">•</span>
-                  <span><strong>Increase Fluency:</strong> Avoid long silent breaks. Use B2 filler concepts like <em>„tatsächlich“</em> or <em>„sozusagen“</em>.</span>
-                </li>
+                {speakingFeedback.map((item: any, idx: number) => (
+                  <li key={idx} className="flex gap-2">
+                    <span className="text-rose-500 font-bold">•</span>
+                    <span><strong>{item.title}:</strong> {item.detail}</span>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>

@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
-import { createClient } from "@/utils/supabase/client";
 import {
   BookMarked,
   Plus,
@@ -10,7 +8,6 @@ import {
   CheckCircle,
   Clock,
   Sparkles,
-  CloudLightning,
   Trash2,
   AlertCircle
 } from "lucide-react";
@@ -30,164 +27,69 @@ const defaultVocab: VocabularyItem[] = [
 ];
 
 export default function VokabelnPage() {
-  const supabase = createClient();
-
   const [vocabList, setVocabList] = useState<VocabularyItem[]>([]);
   const [germanWord, setGermanWord] = useState("");
   const [englishTranslation, setEnglishTranslation] = useState("");
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
 
   useEffect(() => {
-    const initPage = async () => {
+    const initPage = () => {
       setLoading(true);
-      const { data: userData } = await supabase.auth.getUser();
-      setUser(userData.user);
-
-      if (userData.user) {
-        try {
-          const { data, error } = await supabase
-            .from("user_vocabulary")
-            .select("id, german_word, english_translation, srs_interval, next_review_date")
-            .eq("user_id", userData.user.id)
-            .order("next_review_date", { ascending: true });
-
-          if (error) throw error;
-          setVocabList(data || []);
-        } catch (err) {
-          console.error(err);
-          setSyncStatus("error");
-          setVocabList(defaultVocab);
-        }
-      } else {
+      try {
         const local = localStorage.getItem("b2_vocab");
         if (local) {
           setVocabList(JSON.parse(local));
         } else {
           setVocabList(defaultVocab);
         }
+      } catch (err) {
+        console.error("Local storage error:", err);
+        setVocabList(defaultVocab);
       }
       setLoading(false);
     };
 
     initPage();
-  }, [supabase]);
+  }, []);
 
-  const handleAddWord = async (e: React.FormEvent) => {
+  const handleAddWord = (e: React.FormEvent) => {
     e.preventDefault();
     if (!germanWord || !englishTranslation) return;
 
-    setSyncStatus("syncing");
-
-    const newWord: Omit<VocabularyItem, "id"> = {
-      german_word: germanWord,
-      english_translation: englishTranslation,
-      srs_interval: 1,
-      next_review_date: new Date().toISOString()
-    };
-
-    if (user) {
-      try {
-        const { data, error } = await supabase
-          .from("user_vocabulary")
-          .insert({
-            user_id: user.id,
-            ...newWord
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        setVocabList((prev) => [...prev, data]);
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error(err);
-        setSyncStatus("error");
+    const updated = [
+      ...vocabList,
+      {
+        id: Date.now().toString(),
+        german_word: germanWord,
+        english_translation: englishTranslation,
+        srs_interval: 1,
+        next_review_date: new Date().toISOString()
       }
-    } else {
-      const updated = [
-        ...vocabList,
-        { id: Date.now().toString(), ...newWord }
-      ];
-      setVocabList(updated);
-      localStorage.setItem("b2_vocab", JSON.stringify(updated));
-      setSyncStatus("synced");
-    }
+    ];
+    setVocabList(updated);
+    localStorage.setItem("b2_vocab", JSON.stringify(updated));
 
     setGermanWord("");
     setEnglishTranslation("");
   };
 
-  const handleReviewWord = async (id: string, currentInterval: number) => {
-    setSyncStatus("syncing");
-    
+  const handleReviewWord = (id: string, currentInterval: number) => {
     const nextInterval = currentInterval <= 1 ? 3 : currentInterval <= 3 ? 7 : currentInterval <= 7 ? 14 : 30;
     const nextDate = new Date(Date.now() + 86400000 * nextInterval).toISOString();
 
-    if (user) {
-      try {
-        const { error } = await supabase
-          .from("user_vocabulary")
-          .update({
-            srs_interval: nextInterval,
-            next_review_date: nextDate
-          })
-          .eq("id", id);
-
-        if (error) throw error;
-
-        setVocabList((prev) =>
-          prev.map((item) =>
-            item.id === id
-              ? { ...item, srs_interval: nextInterval, next_review_date: nextDate }
-              : item
-          )
-        );
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error(err);
-        setSyncStatus("error");
-      }
-    } else {
-      const updated = vocabList.map((item) =>
-        item.id === id
-          ? { ...item, srs_interval: nextInterval, next_review_date: nextDate }
-          : item
-      );
-      setVococab(updated); // Wait, "setVococab" is a typo! Oh, it was setVocabList in the original! Let's check: in line 140 it is `setVocabList(updated)`. Let's write `setVocabList(updated)`.
-      setVocabList(updated);
-      localStorage.setItem("b2_vocab", JSON.stringify(updated));
-      setSyncStatus("synced");
-    }
+    const updated = vocabList.map((item) =>
+      item.id === id
+        ? { ...item, srs_interval: nextInterval, next_review_date: nextDate }
+        : item
+    );
+    setVocabList(updated);
+    localStorage.setItem("b2_vocab", JSON.stringify(updated));
   };
 
-  const setVococab = (updated: any) => {}; // Unused helper, just keeping it safe or we can remove it. Let's make it write `setVocabList(updated)`.
-
-  const handleDeleteWord = async (id: string) => {
-    setSyncStatus("syncing");
-    if (user) {
-      try {
-        const { error } = await supabase
-          .from("user_vocabulary")
-          .delete()
-          .eq("id", id);
-
-        if (error) throw error;
-
-        setVocabList((prev) => prev.filter((item) => item.id !== id));
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error(err);
-        setSyncStatus("error");
-      }
-    } else {
-      const updated = vocabList.filter((item) => item.id !== id);
-      setVocabList(updated);
-      localStorage.setItem("b2_vocab", JSON.stringify(updated));
-      setSyncStatus("synced");
-    }
+  const handleDeleteWord = (id: string) => {
+    const updated = vocabList.filter((item) => item.id !== id);
+    setVocabList(updated);
+    localStorage.setItem("b2_vocab", JSON.stringify(updated));
   };
 
   const formatDate = (isoString: string) => {
@@ -198,7 +100,7 @@ export default function VokabelnPage() {
   return (
     <div className="flex-1 flex flex-col h-full">
       {/* Top bar */}
-      <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 flex flex-wrap items-center justify-between gap-4">
+      <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-955/95 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400">
             <BookMarked className="h-5.5 w-5.5" />
@@ -211,25 +113,6 @@ export default function VokabelnPage() {
           </div>
         </div>
       </div>
-
-      {/* Sync Banner */}
-      {syncStatus !== "idle" && (
-        <div className={`px-6 py-2 text-xs flex items-center justify-between font-semibold ${
-          syncStatus === "syncing" ? "bg-slate-100 text-slate-650 dark:bg-slate-900" :
-          syncStatus === "synced" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400" :
-          "bg-rose-50 text-rose-800 dark:bg-rose-950/40 dark:text-rose-455"
-        }`}>
-          <div className="flex items-center gap-1.5">
-            <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
-            <span>
-              {syncStatus === "syncing" && "Synchronizing vocabulary with Supabase..."}
-              {syncStatus === "synced" && "Vocabulary successfully synchronized!"}
-              {syncStatus === "error" && "Error synchronizing words."}
-            </span>
-          </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold">Active</span>}
-        </div>
-      )}
 
       <div className="flex-1 p-6 md:p-10 max-w-7xl mx-auto w-full grid lg:grid-cols-3 gap-8 overflow-y-auto">
         {/* Left Column: Form & Help */}
@@ -244,15 +127,6 @@ export default function VokabelnPage() {
               Add B2 vocabulary terms you want to memorize. New terms are reviewed daily. Marking a word as known (✓) increases its review interval (e.g. from 1 day to 3 days, then 7 days).
             </p>
           </div>
-
-          {!user && (
-            <div className="rounded-3xl border border-amber-200 bg-amber-50/20 p-5 dark:border-amber-900/30 dark:bg-amber-955/10 flex gap-2.5">
-              <AlertCircle className="h-5 w-5 text-amber-505 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-800 dark:text-amber-400 leading-normal">
-                <span className="font-bold">Guest Mode Active:</span> Vocabulary is saved locally. <Link href="/login" className="underline font-bold">Log in</Link> to sync your terms to your Supabase cloud database.
-              </div>
-            </div>
-          )}
 
           {/* Form Card */}
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-md dark:border-slate-800 dark:bg-slate-900 space-y-4">

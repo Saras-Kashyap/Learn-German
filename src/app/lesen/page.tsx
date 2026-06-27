@@ -11,7 +11,6 @@ import {
   Info,
   RotateCcw,
   BookMarked,
-  Database,
   CloudLightning
 } from "lucide-react";
 
@@ -23,7 +22,11 @@ const vocabularyTerms = [
   { phrase: "Rohstoffgewinnung", translation: "raw material extraction", definition: "Das Abbauen oder Gewinnen von natürlichen Ressourcen wie Lithium oder Kobalt." },
   { phrase: "Ökobilanz", translation: "ecological balance sheet", definition: "Die Gesamtbewertung der Umweltwirkungen eines Produkts über dessen Lebenszyklus." },
   { phrase: "Ausbau", translation: "expansion / extension", definition: "Die Vergrößerung oder qualitative Verbesserung einer Infrastruktur." },
-  { phrase: "nachhaltige", translation: "sustainable", definition: "Ressourcenschonend, so dass zukünftige Generationen nicht beeinträchtigt werden." }
+  { phrase: "nachhaltige", translation: "sustainable", definition: "Ressourcenschonend, so dass zukünftige Generationen nicht beeinträchtigt werden." },
+  { phrase: "Fachkräftemangels", translation: "shortage of skilled workers", definition: "Ein Mangel an qualifizierten Arbeitskräften in einer Wirtschaft." },
+  { phrase: "kompensieren", translation: "to compensate / offset", definition: "Einen Ausgleich für einen Verlust oder Nachteil schaffen." },
+  { phrase: "Wettbewerbsfähigkeit", translation: "competitiveness", definition: "Die Fähigkeit eines Unternehmens oder Landes, im Vergleich mit anderen erfolgreich zu sein." },
+  { phrase: "Entgrenzung", translation: "blurring of boundaries", definition: "Das Auflösen von festen Grenzen, hier zwischen Freizeit und Arbeitszeit." }
 ];
 
 // Fallback Mock Data if DB is empty
@@ -100,15 +103,15 @@ export default function LesenPage() {
   // Supabase State
   const [article, setArticle] = useState<{ title: string; paragraphs: string[] } | null>(null);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
-  const [seeding, setSeeding] = useState(false);
+
+  // Dynamic RSS scraping state
+  const [activeQuestions, setActiveQuestions] = useState<any[]>(questions);
+  const [fetchingRss, setFetchingRss] = useState(false);
+  const [rssSource, setRssSource] = useState<string | null>(null);
 
   useEffect(() => {
     const loadSessionAndData = async () => {
-      const { data: sessionData } = await supabase.auth.getUser();
-      setUser(sessionData.user);
-
       try {
         const { data, error } = await supabase
           .from("reading_materials")
@@ -146,87 +149,53 @@ export default function LesenPage() {
   };
 
   const score = Object.keys(selectedAnswers).reduce((acc, qId) => {
-    const question = questions.find((q) => q.id === parseInt(qId));
+    const question = activeQuestions.find((q) => q.id === parseInt(qId));
     if (question && selectedAnswers[question.id] === question.correctAnswer) {
       return acc + 1;
     }
     return acc;
   }, 0);
 
-  const handleCheckAnswers = async () => {
+  const handleCheckAnswers = () => {
     setShowResults(true);
 
-    const finalScore = Math.round((score / questions.length) * 60);
+    const finalScore = Math.round((score / activeQuestions.length) * 60);
+    setSyncStatus("syncing");
 
-    if (user) {
-      setSyncStatus("syncing");
-      try {
-        const { data: existingProgress } = await supabase
-          .from("exam_progress")
-          .select("*")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (existingProgress) {
-          const { error } = await supabase
-            .from("exam_progress")
-            .update({
-              lesen_score: Math.max(existingProgress.lesen_score || 0, finalScore),
-              updated_at: new Date().toISOString()
-            })
-            .eq("user_id", user.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from("exam_progress")
-            .insert({
-              user_id: user.id,
-              lesen_score: finalScore,
-              updated_at: new Date().toISOString()
-            });
-          if (error) throw error;
-        }
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error("Sync error:", err);
-        setSyncStatus("error");
-      }
-    } else {
-      // Guest mode - save to localstorage
-      try {
-        const local = localStorage.getItem("b2_exam_progress");
-        const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
-        progress.lesen_score = Math.max(progress.lesen_score || 0, finalScore);
-        localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
-        setSyncStatus("synced");
-      } catch (err) {
-        console.error("Local storage error:", err);
-      }
+    // Save to localstorage
+    try {
+      const local = localStorage.getItem("b2_exam_progress");
+      const progress = local ? JSON.parse(local) : { lesen_score: 0, hoeren_score: 0, schreiben_score: 0, sprechen_score: 0 };
+      progress.lesen_score = Math.max(progress.lesen_score || 0, finalScore);
+      localStorage.setItem("b2_exam_progress", JSON.stringify(progress));
+      setSyncStatus("synced");
+    } catch (err) {
+      console.error("Local storage error:", err);
+      setSyncStatus("error");
     }
   };
 
-  const handleSeedDatabase = async () => {
-    setSeeding(true);
+  const handleFetchRSS = async () => {
+    setFetchingRss(true);
+    setSyncStatus("idle");
     try {
-      const { error } = await supabase
-        .from("reading_materials")
-        .insert({
-          title: defaultArticleText.title,
-          content: defaultArticleText.content
-        });
-
-      if (error) throw error;
-
+      const res = await fetch("/api/reading/scrape");
+      if (!res.ok) throw new Error("Failed to fetch RSS feed");
+      const data = await res.json();
+      
       setArticle({
-        title: defaultArticleText.title,
-        paragraphs: defaultArticleText.content.split("\n\n").filter(Boolean)
+        title: data.title,
+        paragraphs: data.content.split("\n\n").filter(Boolean)
       });
-      setIsDbLoaded(true);
+      setActiveQuestions(data.questions);
+      setRssSource(data.source);
+      setSelectedAnswers({});
+      setShowResults(false);
     } catch (err) {
-      console.error("Error seeding:", err);
-      alert("Error seeding data to Supabase. Ensure you are authenticated and the table exists.");
+      console.error("Error fetching RSS article:", err);
+      alert("Error scraping article from RSS feed. Please try again.");
     } finally {
-      setSeeding(false);
+      setFetchingRss(false);
     }
   };
 
@@ -291,29 +260,27 @@ export default function LesenPage() {
           <div>
             <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">Reading Module</h1>
             <p className="text-xs text-slate-405 dark:text-slate-500">
-              {isDbLoaded ? "📖 Loaded from Supabase" : "Offline Fallback Mode"}
+              {rssSource ? `📰 RSS: ${rssSource}` : "📖 Standard Article Mode"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {user && !isDbLoaded && (
-            <button
-              onClick={handleSeedDatabase}
-              disabled={seeding}
-              className="flex items-center gap-1.5 rounded-xl bg-indigo-55 bg-indigo-50 text-indigo-600 px-4 py-2 text-xs font-semibold hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-400 transition-all border border-indigo-200/50"
-            >
-              <Database className="h-4 w-4" />
-              <span>{seeding ? "Seeding..." : "Seed Database"}</span>
-            </button>
-          )}
+          <button
+            onClick={handleFetchRSS}
+            disabled={fetchingRss}
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-50 text-indigo-600 px-4 py-2 text-xs font-semibold hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-400 transition-all border border-indigo-200/50"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span>{fetchingRss ? "Scraping..." : "Scrape Tagesschau RSS"}</span>
+          </button>
 
           <button
             onClick={() => setHighlightVocab(!highlightVocab)}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold shadow-sm transition-all border ${
               highlightVocab
                 ? "bg-indigo-600 border-indigo-600 text-white shadow-indigo-600/20"
-                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
+                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-55 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
             }`}
           >
             <BookMarked className="h-4 w-4" />
@@ -342,12 +309,12 @@ export default function LesenPage() {
           <div className="flex items-center gap-1.5">
             <CloudLightning className={`h-4 w-4 ${syncStatus === "syncing" ? "animate-pulse" : ""}`} />
             <span>
-              {syncStatus === "syncing" && "Synchronizing exam score..."}
-              {syncStatus === "synced" && (user ? "Score successfully synchronized with Supabase!" : "Progress saved locally!")}
-              {syncStatus === "error" && "Error synchronizing score."}
+              {syncStatus === "syncing" && "Saving exam score..."}
+              {syncStatus === "synced" && "Progress saved locally!"}
+              {syncStatus === "error" && "Error saving score."}
             </span>
           </div>
-          {syncStatus === "synced" && <span className="text-[10px] font-bold uppercase">{user ? "Cloud Saved" : "Local Saved"}</span>}
+          {syncStatus === "synced" && <span className="text-[10px] font-bold uppercase">Saved</span>}
         </div>
       )}
 
@@ -407,21 +374,20 @@ export default function LesenPage() {
             )}
           </div>
         </div>
-
         {/* Right Screen: Questions */}
         <div className="overflow-y-auto p-6 md:p-8 bg-slate-50 dark:bg-slate-900/30">
           <div className="max-w-xl mx-auto space-y-6">
-            <h3 className="text-lg font-bold text-slate-850 dark:text-slate-100 flex items-center justify-between">
+            <h3 className="text-lg font-bold text-slate-855 dark:text-slate-100 flex items-center justify-between">
               <span>Questions</span>
               {showResults && (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-600 text-white">
-                  Score: {score} / {questions.length} Correct
+                  Score: {score} / {activeQuestions.length} Correct
                 </span>
               )}
             </h3>
 
             <div className="space-y-6">
-              {questions.map((q, qIdx) => {
+              {activeQuestions.map((q, qIdx) => {
                 const isCorrect = selectedAnswers[q.id] === q.correctAnswer;
                 return (
                   <div
@@ -444,7 +410,7 @@ export default function LesenPage() {
                     </div>
 
                     <div className="mt-4 space-y-2.5">
-                      {q.options.map((option, optIdx) => {
+                      {q.options.map((option: string, optIdx: number) => {
                         const isSelected = selectedAnswers[q.id] === optIdx;
                         const isThisCorrect = q.correctAnswer === optIdx;
 
@@ -515,7 +481,7 @@ export default function LesenPage() {
             {!showResults && (
               <button
                 onClick={handleCheckAnswers}
-                disabled={Object.keys(selectedAnswers).length < questions.length}
+                disabled={Object.keys(selectedAnswers).length < activeQuestions.length}
                 className="w-full mt-4 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-4.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/10 hover:bg-indigo-500 transition-all disabled:bg-slate-200 disabled:text-slate-450 disabled:shadow-none dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
               >
                 <CheckCircle2 className="h-5 w-5" />
